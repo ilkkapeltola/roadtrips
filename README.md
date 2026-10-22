@@ -1,7 +1,7 @@
 # Motorcycle road trips
 
 Day-by-day trip plans with maps, routes and photos.
-Live: https://ilkkapeltola.github.io/coast-to-coast/
+Live: https://ilkkapeltola.github.io/roadtrips/
 
 - `index.html` lists every trip in `trips/`.
 - `trip.html?t=<slug>` shows one trip.
