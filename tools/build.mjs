@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 /*
- * Regenerates the two derived data files from data/trip.js:
+ * For every trips/<slug>/trip.js, regenerates the derived files next to it:
  *
- *   data/routes.js   road geometry + distance/duration for every leg and loop (OSRM)
- *   data/gallery.js  lead photos of each stop's `wiki` articles (Wikipedia/Commons),
- *                    downloaded into images/<stop-id>/
+ *   routes.js   road geometry + distance/duration for every leg and loop (OSRM)
+ *   gallery.js  lead photos of each stop's `wiki` articles (Wikipedia/Commons),
+ *               downloaded into trips/<slug>/images/<stop-id>/
+ *
+ * and the trip list shown on the front page: trips/manifest.js.
  *
  * Everything is cached: only legs whose waypoints changed and wiki titles not yet
  * downloaded are fetched. Usage:
  *
- *   node tools/build.mjs            # update what changed
- *   node tools/build.mjs routes     # only routes
- *   node tools/build.mjs images     # only images
- *   node tools/build.mjs --force    # refetch everything
+ *   node tools/build.mjs                    # all trips, update what changed
+ *   node tools/build.mjs europe-alps        # one trip
+ *   node tools/build.mjs europe-alps routes # one trip, only routes (or: images)
+ *   node tools/build.mjs --force            # refetch everything
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -22,8 +24,11 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = process.argv.slice(2);
 const FORCE = args.includes("--force");
-const ONLY = args.find((a) => !a.startsWith("--"));
-const UA = "coast-to-coast-trip-planner/1.0 (personal itinerary; node fetch)";
+const words = args.filter((a) => !a.startsWith("--"));
+const ONLY = words.find((w) => w === "routes" || w === "images");
+const SLUG = words.find((w) => w !== ONLY);
+let DIR = ""; // current trip folder, relative to ROOT
+const UA = "roadtrip-planner/1.0 (personal itinerary; node fetch)";
 const OSRM = "https://router.project-osrm.org/route/v1/driving/";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +46,7 @@ function writeWindowFile(file, key, value, comment) {
   fs.writeFileSync(path.join(ROOT, file), body);
 }
 
-// Must match routeKey() in app.js — used to detect stale cached geometry.
+// Must match routeKey() in assets/trip-view.js — used to detect stale cached geometry.
 const routeKey = (pts) => pts.map((p) => `${(+p[0]).toFixed(4)},${(+p[1]).toFixed(4)}`).join(";");
 
 // ── Route legs ──────────────────────────────────────────────────────────────
@@ -49,7 +54,7 @@ const routeKey = (pts) => pts.map((p) => `${(+p[0]).toFixed(4)},${(+p[1]).toFixe
 function collectLegs(trip) {
   const legs = [];
   trip.stops.forEach((stop, i) => {
-    if (stop.ride && i > 0) {
+    if (stop.ride && i > 0 && stop.ride.mode !== "ferry") {
       const pts = [trip.stops[i - 1].coords, ...(stop.ride.via || []), stop.coords];
       legs.push({ id: stop.id, pts });
     }
@@ -106,7 +111,7 @@ async function fetchRoute(pts) {
 }
 
 async function buildRoutes(trip) {
-  const cache = (!FORCE && loadWindowFile("data/routes.js", "ROUTES")) || {};
+  const cache = (!FORCE && loadWindowFile(`${DIR}/routes.js`, "ROUTES")) || {};
   const out = {};
   const legs = collectLegs(trip);
   let fetched = 0;
@@ -127,7 +132,7 @@ async function buildRoutes(trip) {
     }
     await sleep(1100);
   }
-  writeWindowFile("data/routes.js", "ROUTES", out, "Road geometry per leg (key = stop id, or stopId#exploreIndex for loops).");
+  writeWindowFile(`${DIR}/routes.js`, "ROUTES", out, "Road geometry per leg (key = stop id, or stopId#exploreIndex for loops).");
   console.log(`routes: ${legs.length} legs, ${fetched} fetched`);
 }
 
@@ -192,14 +197,14 @@ async function lookupFiles(files) {
 }
 
 async function buildImages(trip) {
-  const cache = (!FORCE && loadWindowFile("data/gallery.js", "GALLERY")) || {};
+  const cache = (!FORCE && loadWindowFile(`${DIR}/gallery.js`, "GALLERY")) || {};
   const out = {};
   const todo = [];
   for (const stop of trip.stops) {
     out[stop.id] = [];
     for (const title of stop.wiki || []) {
       const cached = (cache[stop.id] || []).find((g) => g.wiki === title);
-      if (cached && fs.existsSync(path.join(ROOT, cached.src))) out[stop.id].push(cached);
+      if (cached && fs.existsSync(path.join(ROOT, DIR, cached.src))) out[stop.id].push(cached);
       else todo.push({ stop, title });
     }
   }
@@ -219,10 +224,10 @@ async function buildImages(trip) {
     try {
       const ext = (path.extname(new URL(f.url).pathname) || ".jpg").toLowerCase();
       const rel = `images/${stop.id}/${slug(title)}${ext}`;
-      fs.mkdirSync(path.join(ROOT, "images", stop.id), { recursive: true });
+      fs.mkdirSync(path.join(ROOT, DIR, "images", stop.id), { recursive: true });
       const res = await fetchRetry(f.url);
       if (!res.ok) throw new Error(`download ${res.status}`);
-      fs.writeFileSync(path.join(ROOT, rel), Buffer.from(await res.arrayBuffer()));
+      fs.writeFileSync(path.join(ROOT, DIR, rel), Buffer.from(await res.arrayBuffer()));
       // Keep the order of stop.wiki
       out[stop.id].push({ wiki: title, src: rel, caption: a.title, description: a.description || "", credit: f.credit, source: f.source, page: a.page });
       fetched++;
@@ -236,18 +241,71 @@ async function buildImages(trip) {
     const order = stop.wiki || [];
     out[stop.id].sort((x, y) => order.indexOf(x.wiki) - order.indexOf(y.wiki));
   }
-  writeWindowFile("data/gallery.js", "GALLERY", out, "Photos per stop, from the `wiki` titles in trip.js. Credits from Wikimedia Commons.");
+  writeWindowFile(`${DIR}/gallery.js`, "GALLERY", out, "Photos per stop, from the `wiki` titles in trip.js. Credits from Wikimedia Commons.");
   console.log(`images: ${fetched} downloaded`);
+}
+
+// ── Trip list (front page) ─────────────────────────────────────────────────
+
+const haversineKm = (a, b) => {
+  const r = Math.PI / 180, dLat = (b[0] - a[0]) * r, dLon = (b[1] - a[1]) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * r) * Math.cos(b[0] * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+};
+
+function summarize(slug, trip) {
+  const routes = loadWindowFile(`trips/${slug}/routes.js`, "ROUTES") || {};
+  const gallery = loadWindowFile(`trips/${slug}/gallery.js`, "GALLERY") || {};
+  let days = 0, ridingDays = 0, distanceKm = 0;
+  trip.stops.forEach((s, i) => {
+    days += i === 0 && s.nights === 0 ? 0 : Math.max(1, s.nights || 0);
+    if (!s.ride || i === 0 || s.ride.mode === "ferry") return;
+    ridingDays++;
+    const pts = [trip.stops[i - 1].coords, ...(s.ride.via || []), s.coords];
+    const r = routes[s.id];
+    if (r && r.key === routeKey(pts)) distanceKm += r.distance / 1000;
+    else for (let k = 1; k < pts.length; k++) distanceKm += haversineKm(pts[k - 1], pts[k]) * 1.25;
+  });
+  const firstImg = Object.values(gallery).flat()[0];
+  const cover = trip.meta.cover || firstImg?.src;
+  return {
+    slug,
+    title: trip.meta.title,
+    subtitle: trip.meta.subtitle || "",
+    from: trip.stops[0].name,
+    to: trip.stops[trip.stops.length - 1].name,
+    startDate: trip.meta.startDate,
+    units: trip.meta.defaultUnits || "mi",
+    order: trip.meta.order ?? 100,
+    days,
+    ridingDays,
+    distanceKm: Math.round(distanceKm),
+    cover: cover ? (/^(https?:)?\/\//.test(cover) ? cover : `trips/${slug}/${cover}`) : null,
+  };
 }
 
 // ── main ───────────────────────────────────────────────────────────────────
 
-const trip = loadWindowFile("data/trip.js", "TRIP");
-if (!trip) throw new Error("data/trip.js did not define window.TRIP");
-const ids = new Set();
-for (const s of trip.stops) {
-  if (ids.has(s.id)) throw new Error(`duplicate stop id: ${s.id}`);
-  ids.add(s.id);
+const slugs = fs.readdirSync(path.join(ROOT, "trips")).filter((d) => fs.existsSync(path.join(ROOT, "trips", d, "trip.js"))).sort();
+if (SLUG && !slugs.includes(SLUG)) throw new Error(`no trip "${SLUG}" — have: ${slugs.join(", ")}`);
+
+const summaries = [];
+for (const slug of slugs) {
+  DIR = `trips/${slug}`;
+  const trip = loadWindowFile(`${DIR}/trip.js`, "TRIP");
+  if (!trip) throw new Error(`${DIR}/trip.js did not define window.TRIP`);
+  const ids = new Set();
+  for (const s of trip.stops) {
+    if (ids.has(s.id)) throw new Error(`${slug}: duplicate stop id: ${s.id}`);
+    ids.add(s.id);
+  }
+  if (!SLUG || SLUG === slug) {
+    console.log(`\n== ${slug} ==`);
+    if (!ONLY || ONLY === "routes") await buildRoutes(trip);
+    if (!ONLY || ONLY === "images") await buildImages(trip);
+  }
+  summaries.push(summarize(slug, trip));
 }
-if (!ONLY || ONLY === "routes") await buildRoutes(trip);
-if (!ONLY || ONLY === "images") await buildImages(trip);
+summaries.sort((a, b) => a.order - b.order || a.startDate.localeCompare(b.startDate));
+writeWindowFile("trips/manifest.js", "TRIPS", summaries, "Trip list for the front page (one entry per trips/<slug>/trip.js).");
+console.log(`\nmanifest: ${summaries.length} trip(s)`);

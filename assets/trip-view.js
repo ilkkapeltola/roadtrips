@@ -1,7 +1,7 @@
 /*
- * Renderer. Reads window.TRIP (data/trip.js), window.ROUTES (data/routes.js)
- * and window.GALLERY (data/gallery.js). Contains no trip content — edit the data,
- * not this file.
+ * Trip renderer, shared by every trip. trip.html loads trips/<slug>/trip.js,
+ * routes.js and gallery.js (window.TRIP / ROUTES / GALLERY) before this file.
+ * Contains no trip content — edit the data, not this file.
  */
 (function () {
   "use strict";
@@ -9,6 +9,8 @@
   const TRIP = window.TRIP;
   const ROUTES = window.ROUTES || {};
   const GALLERY = window.GALLERY || {};
+  const BASE = window.TRIP_BASE || "";
+  const SLUG = window.TRIP_SLUG || "trip";
   const stops = TRIP.stops;
   const MI = 1609.344;
   const REGION_COLORS = ["#d9541e", "#2f7d6d", "#7c5cbf", "#c48a12", "#2b6cb0", "#b83280", "#5a7d2a", "#c05621", "#4a5568", "#0f766e", "#9b2c2c"];
@@ -35,7 +37,7 @@
   };
   const fmtDate = (d, opts = { weekday: "short", month: "short", day: "numeric" }) => d.toLocaleDateString("en-US", opts);
 
-  let units = storage.get("units") || TRIP.meta.defaultUnits || "mi";
+  let units = storage.get(`units:${SLUG}`) || TRIP.meta.defaultUnits || "mi";
   const fmtDist = (m) => (units === "km" ? `${Math.round(m / 1000).toLocaleString()} km` : `${Math.round(m / MI).toLocaleString()} mi`);
   const fmtHours = (s) => {
     const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60 / 5) * 5;
@@ -47,7 +49,13 @@
   stops.forEach((s) => { if (!regions.includes(s.region)) regions.push(s.region); });
   const regionColor = (r) => REGION_COLORS[regions.indexOf(r) % REGION_COLORS.length];
 
-  function makeLeg(id, pts) {
+  function makeLeg(id, pts, ferry) {
+    if (ferry) {
+      // Sea crossing: drawn through the via points as given; time comes from the data.
+      let d = 0;
+      for (let i = 1; i < pts.length; i++) d += haversine(pts[i - 1], pts[i]);
+      return { id, pts, coords: pts.map((p) => [p[0], p[1]]), distance: d, duration: (ferry.hours || 0) * 3600, ferry, estimated: false };
+    }
     const cached = ROUTES[id];
     if (cached && cached.key === routeKey(pts)) {
       return { id, pts, coords: cached.coords, distance: cached.distance, duration: cached.duration, estimated: false };
@@ -61,14 +69,17 @@
 
   const days = [];
   stops.forEach((stop, i) => {
-    const nights = Math.max(1, stop.nights || 1);
+    // nights: 0 on the first stop = just a departure point (no day of its own);
+    // on any other stop it still gets its arrival day (e.g. arriving home).
+    const nights = i === 0 && stop.nights === 0 ? 0 : Math.max(1, stop.nights || 0);
     for (let n = 0; n < nights; n++) {
       const day = { stop, stopIndex: i, night: n, index: days.length };
       if (n === 0) {
         day.kind = stop.ride && i > 0 ? "ride" : "start";
         if (day.kind === "ride") {
           day.from = stops[i - 1];
-          day.leg = makeLeg(stop.id, [day.from.coords, ...(stop.ride.via || []), stop.coords]);
+          const ferry = stop.ride.mode === "ferry" ? stop.ride.ferry || {} : null;
+          day.leg = makeLeg(stop.id, [day.from.coords, ...(stop.ride.via || []), stop.coords], ferry);
         }
       } else {
         day.kind = "explore";
@@ -81,12 +92,15 @@
       days.push(day);
     }
   });
-  const rideDays = days.filter((d) => d.kind === "ride");
+  const travelDays = days.filter((d) => d.kind === "ride");
+  const rideDays = travelDays.filter((d) => !d.leg.ferry);
+  const ferryDays = travelDays.filter((d) => d.leg.ferry);
   const tripSoFar = (day) => rideDays.filter((d) => d.index <= day.index).reduce((a, d) => a + d.leg.distance, 0);
 
   // ── header & notes ───────────────────────────────────────────────────────
   function renderHeader() {
     document.title = TRIP.meta.title;
+    if (TRIP.meta.defaultUnits === "km" && !storage.get(`units:${SLUG}`)) units = "km";
     $("#title").textContent = TRIP.meta.title;
     $("#subtitle").textContent = TRIP.meta.subtitle || "";
     const dist = rideDays.reduce((a, d) => a + d.leg.distance, 0);
@@ -99,6 +113,7 @@
       stat("Riding days", rideDays.length) +
       stat("Distance", fmtDist(dist)) +
       stat("Optional day loops", "+" + fmtDist(loops)) +
+      (ferryDays.length ? stat("Ferry", fmtHours(ferryDays.reduce((a, d) => a + d.leg.duration, 0))) : "") +
       stat("Avg ride", fmtHours(dur / rideDays.length)) +
       stat("Dates", `${fmtDate(first, { month: "short", day: "numeric" })} – ${fmtDate(last, { month: "short", day: "numeric", year: "numeric" })}`);
     document.querySelectorAll(".units button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.units === units)));
@@ -130,8 +145,10 @@
     overview = L.map("overview-map", { scrollWheelZoom: false, zoomSnap: 0.25 });
     tileLayer().addTo(overview);
     const all = [];
-    rideDays.forEach((d) => {
-      L.polyline(d.leg.coords, { color: regionColor(d.stop.region), weight: 3.5, opacity: 0.85, dashArray: d.leg.estimated ? "6 6" : null })
+    travelDays.forEach((d) => {
+      L.polyline(d.leg.coords, d.leg.ferry
+        ? { color: "#2b6cb0", weight: 3, opacity: 0.8, dashArray: "2 8" }
+        : { color: regionColor(d.stop.region), weight: 3.5, opacity: 0.85, dashArray: d.leg.estimated ? "6 6" : null })
         .on("click", () => select(d.index))
         .addTo(overview);
       all.push(...d.leg.coords);
@@ -140,7 +157,7 @@
       const cls = i === 0 ? "pin start" : i === stops.length - 1 ? "pin end" : s.nights > 1 ? "pin multi" : "pin";
       const size = s.nights > 1 || i === 0 || i === stops.length - 1 ? 16 : 12;
       L.marker(s.coords, { icon: divIcon(cls, size), title: s.name })
-        .bindTooltip(`<b>${esc(s.name)}</b><br>${s.nights} night${s.nights > 1 ? "s" : ""}`, { direction: "top", offset: [0, -6] })
+        .bindTooltip(`<b>${esc(s.name)}</b>${s.nights ? `<br>${s.nights} night${s.nights > 1 ? "s" : ""}` : ""}`, { direction: "top", offset: [0, -6] })
         .on("click", () => select(days.findIndex((d) => d.stop === s)))
         .addTo(overview);
     });
@@ -167,8 +184,8 @@
     dayLayer = L.layerGroup().addTo(dayMap);
     if (day.leg) {
       L.polyline(day.leg.coords, { color: "#fff", weight: 8, opacity: 0.9 }).addTo(dayLayer);
-      L.polyline(day.leg.coords, { color: accent(), weight: 5, dashArray: day.leg.estimated ? "8 8" : null }).addTo(dayLayer);
-      day.leg.pts.slice(1, -1).forEach((p) => {
+      L.polyline(day.leg.coords, { color: day.leg.ferry ? "#2b6cb0" : accent(), weight: 5, dashArray: day.leg.ferry ? "2 10" : day.leg.estimated ? "8 8" : null }).addTo(dayLayer);
+      day.leg.pts.slice(1, -1).filter((p) => p[2]).forEach((p) => {
         const m = L.marker([p[0], p[1]], { icon: divIcon("via-pin", 10) }).addTo(dayLayer);
         if (p[2]) m.bindTooltip(esc(p[2]), { className: "via-label", direction: "right", offset: [6, 0] });
       });
@@ -228,7 +245,7 @@
           g.days
             .map((d) => {
               const label = d.stop.name.split(/[,(]/)[0].trim();
-              const cls = `chip ${d.kind}${d.stop.optional ? " optional" : ""}`;
+              const cls = `chip ${d.leg && d.leg.ferry ? "ferry" : d.kind}${d.stop.optional ? " optional" : ""}`;
               return `<button class="${cls}" data-day="${d.index}" title="Day ${d.index + 1}: ${esc(dayTitle(d))}"><b><i class="dot"></i>Day ${d.index + 1}</b><span>${esc(label)}</span></button>`;
             })
             .join("") +
@@ -242,7 +259,7 @@
     const s = day.stop;
     const ride = s.ride || {};
     const isRide = day.kind === "ride";
-    const kindLabel = { ride: "Riding day", explore: "Stay & explore", start: "Departure city" }[day.kind];
+    const kindLabel = day.leg && day.leg.ferry ? "Ferry" : { ride: "Riding day", explore: "Stay & explore", start: "Departure city" }[day.kind];
     const badges = [
       `<span class="badge accent">${kindLabel}</span>`,
       s.nights > 1 ? `<span class="badge">${s.nights} nights here</span>` : "",
@@ -251,7 +268,14 @@
       `<span class="badge">${esc(s.region)}</span>`,
     ].join("");
 
-    const stats = day.leg
+    const f = day.leg && day.leg.ferry;
+    const stats = f
+      ? `<dl class="ride-stats">
+          <div><dt>Departs</dt><dd>${esc(f.depart || "—")}</dd></div>
+          <div><dt>Arrives</dt><dd>${esc(f.arrive || "—")}</dd></div>
+          <div><dt>Crossing</dt><dd>${f.hours ? f.hours + " h" : "—"}</dd></div>
+        </dl>`
+      : day.leg
       ? `<dl class="ride-stats">
           <div><dt>Distance</dt><dd>${fmtDist(day.leg.distance)}</dd></div>
           <div><dt>Riding time</dt><dd>${fmtHours(day.leg.duration)}${day.leg.estimated ? ' <span class="est">est.</span>' : ""}</dd></div>
@@ -260,10 +284,10 @@
       : "";
 
     const routePanel = isRide
-      ? `<div class="panel card"><h3>The ride</h3>
+      ? `<div class="panel card"><h3>${f ? "The crossing" : "The ride"}</h3>
           <p class="roads">${esc(ride.roads)}</p>
           ${ride.notes ? `<p class="muted">${esc(ride.notes)}</p>` : ""}
-          <ul class="via">${day.leg.pts.map((p, i) => `<li>${esc(i === 0 ? day.from.name : i === day.leg.pts.length - 1 ? s.name : p[2] || "via")}</li>`).join("")}</ul>
+          <ul class="via">${day.leg.pts.map((p, i) => (i === 0 ? day.from.name : i === day.leg.pts.length - 1 ? s.name : p[2])).filter(Boolean).map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
         </div>`
       : day.kind === "explore"
       ? `<div class="panel card"><h3>${esc(day.explore.title)}</h3><p>${esc(day.explore.text)}</p></div>`
@@ -281,7 +305,7 @@
 
     const sleep = s.sleep ? `<div class="panel card"><h3>Where to stay</h3><p>${esc(s.sleep)}</p></div>` : "";
 
-    const actions = day.leg
+    const actions = day.leg && !day.leg.ferry
       ? `<div class="actions">
           <a class="btn primary" target="_blank" rel="noopener" href="${kurvigerUrl(day.leg.pts, isRide ? ride.weighting : "curvature")}">Open in Kurviger</a>
           <a class="btn" target="_blank" rel="noopener" href="${googleUrl(day.leg.pts)}">Google Maps</a>
@@ -300,7 +324,7 @@
         <div class="day-head">
           <div class="kicker">Day ${day.index + 1} · ${fmtDate(day.date)}</div>
           <h2>${esc(dayTitle(day))}</h2>
-          <p class="summary">${esc(s.summary)}</p>
+          <p class="summary">${day.kind === "explore" ? `Day ${day.night + 1} of ${s.nights} in ${esc(s.name)}.` : esc(s.summary)}</p>
           <div class="badges">${badges}</div>
         </div>
         ${stats}${alerts}${routePanel}${highlights}${sleep}
@@ -315,11 +339,12 @@
     dayMap = null; // container was replaced
     renderDayMap(day);
     const gpxBtn = $("#gpx-day");
-    if (gpxBtn) gpxBtn.onclick = () => downloadGpx(`day-${String(day.index + 1).padStart(2, "0")}-${s.id}.gpx`, [gpxRoute(`Day ${day.index + 1}: ${dayTitle(day)}`, namedPts(day))]);
+    if (gpxBtn) gpxBtn.onclick = () => downloadGpx(`${SLUG}-day-${String(day.index + 1).padStart(2, "0")}-${s.id}.gpx`, [gpxRoute(`Day ${day.index + 1}: ${dayTitle(day)}`, namedPts(day))]);
     document.querySelectorAll(".grid button").forEach((b) => (b.onclick = () => openLightbox(imgs, +b.dataset.img)));
   }
 
-  const galleryFor = (stop) => [...(GALLERY[stop.id] || []), ...(stop.gallery || [])];
+  const withBase = (src) => (/^(https?:)?\/\//.test(src) ? src : BASE + src);
+  const galleryFor = (stop) => [...(GALLERY[stop.id] || []), ...(stop.gallery || [])].map((g) => ({ ...g, src: withBase(g.src) }));
 
   // ── lightbox ─────────────────────────────────────────────────────────────
   let lb = { imgs: [], i: 0 };
@@ -386,7 +411,7 @@
   document.querySelectorAll(".units button").forEach((b) =>
     (b.onclick = () => {
       units = b.dataset.units;
-      storage.set("units", units);
+      storage.set(`units:${SLUG}`, units);
       renderHeader();
       const c = current;
       current = -1;
@@ -394,7 +419,7 @@
     })
   );
   $("#gpx-all").onclick = () =>
-    downloadGpx("coast-to-coast-full.gpx", rideDays.map((d) => gpxRoute(`Day ${d.index + 1}: ${dayTitle(d)}`, namedPts(d))));
+    downloadGpx(`${SLUG}-full.gpx`, rideDays.map((d) => gpxRoute(`Day ${d.index + 1}: ${dayTitle(d)}`, namedPts(d))));
 
   // ── boot ─────────────────────────────────────────────────────────────────
   renderHeader();

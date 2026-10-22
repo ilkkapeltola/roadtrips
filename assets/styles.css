@@ -189,3 +189,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .map-overview { height: 280px; }
   .lb-prev, .lb-next { top: auto; bottom: 16px; }
 }
+
+/* ── framework additions ── */
+.back { display: inline-block; font-size: 13px; font-weight: 600; text-decoration: none; margin-bottom: 6px; }
+.chip.ferry .dot { background: #2b6cb0; }
+
+/* ── trip index ── */
+.trip-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; margin: 8px 0 48px; }
+.trip-card { display: flex; flex-direction: column; overflow: hidden; text-decoration: none; color: inherit; transition: transform 0.2s, border-color 0.2s; }
+.trip-card:hover { transform: translateY(-2px); border-color: var(--accent); }
+.trip-card .cover { aspect-ratio: 16 / 9; background: var(--surface-2) center / cover no-repeat; }
+.trip-card .body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+.trip-card h2 { font-size: 22px; }
+.trip-card p { margin: 0; color: var(--muted); }
+.trip-card .facts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.trip-card .route { font-size: 13px; color: var(--muted); }

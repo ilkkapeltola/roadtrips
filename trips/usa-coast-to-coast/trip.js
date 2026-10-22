@@ -1,42 +1,5 @@
-/*
- * ===========================================================================
- *  TRIP DATA — the only file you need to edit.
- * ===========================================================================
- *
- *  The page (index.html + app.js) renders everything from this object.
- *  Days, dates, day numbers and totals are DERIVED — never typed by hand.
- *
- *  A trip is an ordered list of STOPS (overnight places). Each stop has:
- *
- *    id          unique slug, used for images + cached routes
- *    name        display name
- *    region      used to group the day selector (consecutive stops share it)
- *    coords      [lat, lon] of the overnight spot
- *    nights      how many nights you sleep here (1 = ride in, leave next morning)
- *                -> creates 1 "ride" day + (nights - 1) "explore" days
- *    optional    true = a stop you can drop to save time (shown as a badge)
- *    summary     one or two sentences on why you stop here
- *    ride        how you get here from the previous stop (null for the start)
- *       via       [[lat, lon, "label"], ...] waypoints that force the scenic roads
- *       roads     the roads you ride, in words
- *       notes     riding notes
- *       long      true = flagged as a longer-than-usual day
- *       weighting Kurviger style: "curvaturefastest" (default), "curvature",
- *                 "curvaturebooster" (extra curvy) or "fastest"
- *    highlights  [{ name, text }] what to see
- *    explore     one entry per extra night: { title, text, loop? }
- *                  loop = [[lat, lon, "label"], ...] optional day-ride loop
- *    sleep       where to stay
- *    alerts      [..] things to check before you go (closures, reservations)
- *    wiki        Wikipedia article titles — `npm run build` downloads their lead
- *                photo into images/<id>/ with credits
- *    gallery     extra images you add by hand: [{ src, caption, credit }]
- *
- *  After changing coords / via / loops / wiki, run:   node tools/build.mjs
- *  (re-fetches road geometry + photos; the page still works without it,
- *   it just draws straight dashed lines for legs whose route is stale.)
- * ===========================================================================
- */
+// USA coast to coast, New York → Denver → San Francisco.
+// Format: see "Trip data format" in README.md. After editing, run: node tools/build.mjs usa-coast-to-coast
 
 window.TRIP = {
   meta: {
@@ -44,6 +7,8 @@ window.TRIP = {
     subtitle: "New York → Denver → San Francisco, the long way round",
     startDate: "2027-08-16",
     defaultUnits: "mi", // "mi" or "km" — toggle on the page too
+    cover: "images/mesa-verde/red-mountain-pass.jpg",
+    order: 2,
     season:
       "Start mid-August. You reach the Blue Ridge in late summer, New Mexico in early September (chile harvest), " +
       "Colorado in mid/late September (aspens turning gold), Utah's canyons in late September (warm, not scorching) " +
