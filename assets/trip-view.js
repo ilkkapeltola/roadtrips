@@ -112,7 +112,7 @@
       stat("Days", days.length) +
       stat("Riding days", rideDays.length) +
       stat("Distance", fmtDist(dist)) +
-      stat("Optional day loops", "+" + fmtDist(loops)) +
+      (loops ? stat("Optional day loops", "+" + fmtDist(loops)) : "") +
       (ferryDays.length ? stat("Ferry", fmtHours(ferryDays.reduce((a, d) => a + d.leg.duration, 0))) : "") +
       stat("Avg ride", fmtHours(dur / rideDays.length)) +
       stat("Dates", `${fmtDate(first, { month: "short", day: "numeric" })} – ${fmtDate(last, { month: "short", day: "numeric", year: "numeric" })}`);
