@@ -139,17 +139,18 @@ window.TRIP = {
       nights: 1,
       summary: "Back to your old university town, where the Moselle meets the Rhine — twenty years on.",
       ride: {
-        via: [],
-        roads: "Harz back roads → autobahn west via Kassel and the Westerwald → Koblenz",
+        via: [[50.3636, 7.5583, "Uni Koblenz (Metternich campus)"]],
+        roads: "Harz back roads → autobahn west via Kassel and the Westerwald → past the Uni Koblenz campus in Metternich → Koblenz",
         notes:
-          "A transit day on the autobahn. Arrive mid-afternoon to leave time to wander the old haunts. Add your old campus or flat as a waypoint here and it'll be on the map and in the Kurviger/GPX export.",
+          "A transit day on the autobahn. Ride past the old campus in Metternich on the way in, then down to the Altstadt — arrive mid-afternoon to leave time to wander the old haunts.",
         long: true,
       },
       highlights: [
         { name: "Deutsches Eck", text: "The 'German Corner' where the Moselle flows into the Rhine, under the giant Kaiser Wilhelm statue." },
         { name: "Ehrenbreitstein Fortress", text: "Ride or take the cable car across the Rhine up to the fortress for the view over both rivers." },
         { name: "Altstadt", text: "Görresplatz, Florinsmarkt, the 'Schängel' fountain that spits at passers-by, and a Riesling in a wine bar on the Moselle bank." },
-        { name: "Old haunts", text: "Your university, your old street, the bar you remember. Things may have changed in 20 years; the Rhine hasn't." },
+        { name: "Uni Koblenz, Metternich", text: "The campus on Universitätsstraße, in Metternich — twenty years on. (It's been 'Universität Koblenz' on its own since 2023, after splitting from Landau.)" },
+        { name: "Old haunts", text: "Your old street, the bar you remember. Things may have changed in 20 years; the Rhine hasn't." },
       ],
       explore: [],
       sleep: "Altstadt hotels near the Moselle (Hotel Kornpforte, Diehls Hotel across the Rhine with the view).",
